@@ -18,8 +18,14 @@
 #include <zephyr/bluetooth/conn.h>
 #include <zephyr/bluetooth/uuid.h>
 #include <zephyr/bluetooth/gatt.h>
+#include <zephyr/bluetooth/l2cap.h>
 #include <bluetooth/services/cgms.h>
 #include <sfloat.h>
+
+#include <zephyr/logging/log.h>
+
+
+LOG_MODULE_REGISTER(l2cap_reproducer, LOG_LEVEL_DBG);
 
 #define APP_GLUCOSE_MIN    88
 #define APP_GLUCOSE_MAX    92
@@ -93,8 +99,8 @@ static void auth_passkey_display(struct bt_conn *conn, unsigned int passkey)
 }
 
 static struct bt_conn_auth_cb auth_cb_display = {
-	.cancel = auth_cancel,
 	.passkey_display = auth_passkey_display,
+	.cancel = auth_cancel,
 };
 
 static void cgms_session_state_changed(const bool state)
@@ -105,6 +111,128 @@ static void cgms_session_state_changed(const bool state)
 	} else {
 		printk("Session stops.\n");
 	}
+}
+
+static bt_l2cap_chan* l2cap_channel_ = nullptr;
+
+static const std::uint8_t random_data[ 1024 ] = { 1, 2, 3, 4, 5, 6, 7 };
+
+static bool connected = false;
+
+NET_BUF_POOL_FIXED_DEFINE(
+    mqtt_sn_messages_over_l2cap,
+    5,
+    std::size( random_data ) + BT_L2CAP_SDU_CHAN_SEND_RESERVE,
+    CONFIG_BT_CONN_TX_USER_DATA_SIZE, NULL);
+
+static void try_send_random_stuff()
+{
+	if ( connected && l2cap_channel_ )
+	{
+        net_buf * const buf = net_buf_alloc_fixed(
+            &mqtt_sn_messages_over_l2cap, K_FOREVER);
+
+        if ( !buf )
+        {
+            return;
+        }
+
+        const std::size_t max_message_size = BT_L2CAP_LE_CHAN(l2cap_channel_)->tx.mtu;
+        const std::size_t transmit_size = std::min< std::size_t >( max_message_size, std::size( random_data ) );
+
+        net_buf_reserve(buf, BT_L2CAP_SDU_CHAN_SEND_RESERVE);
+        net_buf_add_mem(buf, random_data, transmit_size);
+
+        const int rc = bt_l2cap_chan_send(l2cap_channel_, buf);
+
+        if (rc < 0) {
+            net_buf_unref(buf);
+            return 0;
+        }
+
+        assert( rc == 0 || rc == -ENOTCONN );
+
+        return transmit_size;
+	}
+}
+
+static void init_l2cap()
+{
+    static bt_conn_cb bt_conn_callbacks = {
+        .connected = [](struct bt_conn *conn, uint8_t err) -> void {
+        	connected = true;
+            LOG_INF("connected: %d", (int)err);
+        },
+        .disconnected = [](struct bt_conn *conn, uint8_t reason) -> void {
+        	connected = false;
+            LOG_INF("disconnected: %d", (int)reason);
+        }
+    };
+
+    [[maybe_unused]] const int bt_cb_rc = bt_conn_cb_register(&bt_conn_callbacks);
+    assert( bt_cb_rc == 0 );
+
+    static bt_gatt_cb gatt_callbacks = {
+        .att_mtu_updated = [](struct bt_conn *, uint16_t tx, uint16_t rx)
+        {
+            LOG_INF("Updated MTU: TX: %d RX: %d bytes", tx, rx);
+        }
+    };
+
+    bt_gatt_cb_register(&gatt_callbacks);
+
+    static bt_l2cap_server l2cap_channel = {
+        .psm = 0,
+        // TODO
+        .sec_level = BT_SECURITY_L1, //BT_SECURITY_L4,
+        .accept = [](struct bt_conn* conn, struct bt_l2cap_server* /*server*/, struct bt_l2cap_chan **chan) -> int
+        {
+            static const bt_l2cap_chan_ops channel_callbacks = {
+                .connected = [](struct bt_l2cap_chan */*chan*/)
+                {
+                    LOG_INF("incomming L2CAP connection...");
+					try_send_random_stuff();
+					try_send_random_stuff();
+					try_send_random_stuff();
+                },
+                .disconnected = nullptr,
+                .encrypt_change = nullptr,
+                .alloc_seg = nullptr,
+                .alloc_buf = nullptr,
+                .recv = [](struct bt_l2cap_chan */*chan*/, struct net_buf *buf) -> int {
+                    return buf->len;
+                },
+                .sent = [](struct bt_l2cap_chan */*chan*/){
+					try_send_random_stuff();
+                },
+                .status = nullptr,
+                .released = nullptr,
+                .reconfigured = nullptr,
+                .seg_recv = nullptr
+            };
+
+            /*
+             * !!! The caller is not expecting to have a bt_l2cap_chan
+             * beeing returned, but a bt_l2cap_le_chan that contains a
+             * bt_l2cap_chan (poor mans inheritance)
+             */
+            static bt_l2cap_le_chan channel = {
+                .chan = {
+                    .conn = conn,
+                    .ops  = &channel_callbacks
+                }
+             };
+
+            l2cap_channel_ = &channel.chan;
+            *chan = &channel.chan;
+            return 0;
+        }
+    };
+
+    [[maybe_unused]] const int l2cap_channel_rc = bt_l2cap_server_register( &l2cap_channel );
+    LOG_ERR( "l2cap_channel_rc: %d", l2cap_channel_rc);
+    assert( l2cap_channel_rc == 0 );
+    LOG_INF( "psm: %d", (int)l2cap_channel.psm );
 }
 
 int main(void)
@@ -135,6 +263,8 @@ int main(void)
 	if (IS_ENABLED(CONFIG_SETTINGS)) {
 		settings_load();
 	}
+
+	init_l2cap();
 
 	params.type = BT_CGMS_FEAT_TYPE_CAP_PLASMA;
 	params.sample_location = BT_CGMS_FEAT_LOC_FINGER;
