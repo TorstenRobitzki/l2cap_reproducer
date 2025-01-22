@@ -1,0 +1,106 @@
+/*
+ * Copyright (c) 2021 Nordic Semiconductor ASA
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+ &zephyr_udc0 {
+    cdc_acm_uart0 {
+        compatible = "zephyr,cdc-acm-uart";
+    };
+};
+
+/ {
+    chosen {
+        nordic,pm-ext-flash = &mx25r64;
+    };
+};
+
+/*
+   Disable QSPI peripheral, to not get the Zephyr QSPI driver linked in,
+   which would clash with drivers/flash_memory.cpp
+ */
+&qspi {
+    status = "disabled";
+};
+
+led_i2c: &i2c2 {
+    status = "okay";
+    compatible = "nordic,nrf-twim";
+    pinctrl-0 = <&i2c2_default>;
+    pinctrl-1 = <&i2c2_sleep>;
+    pinctrl-names = "default", "sleep";
+
+    is31fl3194: is31fl3194@53 {
+        status = "okay";
+        reg = <0x53>;
+    };
+};
+
+power_i2c: &i2c1 {
+    status = "okay";
+    compatible = "nordic,nrf-twim";
+    pinctrl-0 = <&i2c1_default>;
+    pinctrl-1 = <&i2c1_sleep>;
+    pinctrl-names = "default", "sleep";
+
+    pca9420bs: pca9420bs@61 {
+        status = "okay";
+        reg = <0x61>;
+    };
+};
+
+&pinctrl {
+    i2c2_default: i2c2_default{
+        group1 {
+            psels = <NRF_PSEL(TWIM_SDA, 0, 3)>,
+                    <NRF_PSEL(TWIM_SCL, 1, 15)>;
+        };
+    };
+
+    i2c2_sleep: i2c2_sleep{
+        group1 {
+            psels = <NRF_PSEL(TWIM_SDA, 0, 3)>,
+                    <NRF_PSEL(TWIM_SCL, 1, 15)>;
+            low-power-enable;
+        };
+    };
+
+    i2c1_default: i2c1_default{
+        group1 {
+            psels = <NRF_PSEL(TWIM_SDA, 0, 29)>,
+                    <NRF_PSEL(TWIM_SCL, 0, 27)>;
+        };
+    };
+
+    i2c1_sleep: i2c1_sleep{
+        group1 {
+            psels = <NRF_PSEL(TWIM_SDA, 0, 29)>,
+                    <NRF_PSEL(TWIM_SCL, 0, 27)>;
+            low-power-enable;
+        };
+    };
+};
+
+
+/ {
+    zephyr,user{
+        led-enable-gpios = <&gpio0 2 (GPIO_PUSH_PULL | GPIO_ACTIVE_HIGH)>;
+        afe-1v5-enable-gpios = <&gpio1 0 (GPIO_PUSH_PULL | GPIO_ACTIVE_HIGH)>;
+        ads-loadswitch-gpios = <&gpio0 7 (GPIO_PUSH_PULL | GPIO_ACTIVE_HIGH)>;
+        imu-loadswitch-gpios = <&gpio1 11 (GPIO_PUSH_PULL | GPIO_ACTIVE_HIGH)>;
+    };
+
+};
+
+/*
+ * GPIO Pins used by the Network core that have to be assigned to the network core
+ * by the application core.
+ */
+&gpio_fwd {
+    status = "disabled";
+};
+
+&uicr {
+    nfct-pins-as-gpios;
+};
