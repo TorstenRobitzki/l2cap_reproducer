@@ -24,6 +24,8 @@
 
 #include <zephyr/logging/log.h>
 
+#include <cstdint>
+#include <array>
 
 LOG_MODULE_REGISTER(l2cap_reproducer, LOG_LEVEL_DBG);
 
@@ -117,7 +119,7 @@ static bt_l2cap_chan* l2cap_channel_ = nullptr;
 
 static const std::uint8_t random_data[ 1024 ] = { 1, 2, 3, 4, 5, 6, 7 };
 
-static bool connected = false;
+static bool is_connected = false;
 
 NET_BUF_POOL_FIXED_DEFINE(
     mqtt_sn_messages_over_l2cap,
@@ -127,7 +129,7 @@ NET_BUF_POOL_FIXED_DEFINE(
 
 static void try_send_random_stuff()
 {
-	if ( connected && l2cap_channel_ )
+	if ( is_connected && l2cap_channel_ )
 	{
         net_buf * const buf = net_buf_alloc_fixed(
             &mqtt_sn_messages_over_l2cap, K_FOREVER);
@@ -147,12 +149,10 @@ static void try_send_random_stuff()
 
         if (rc < 0) {
             net_buf_unref(buf);
-            return 0;
+            return;
         }
 
         assert( rc == 0 || rc == -ENOTCONN );
-
-        return transmit_size;
 	}
 }
 
@@ -160,11 +160,11 @@ static void init_l2cap()
 {
     static bt_conn_cb bt_conn_callbacks = {
         .connected = [](struct bt_conn *conn, uint8_t err) -> void {
-        	connected = true;
+        	is_connected = true;
             LOG_INF("connected: %d", (int)err);
         },
         .disconnected = [](struct bt_conn *conn, uint8_t reason) -> void {
-        	connected = false;
+        	is_connected = false;
             LOG_INF("disconnected: %d", (int)reason);
         }
     };
@@ -191,6 +191,9 @@ static void init_l2cap()
                 .connected = [](struct bt_l2cap_chan */*chan*/)
                 {
                     LOG_INF("incomming L2CAP connection...");
+					try_send_random_stuff();
+					try_send_random_stuff();
+					try_send_random_stuff();
 					try_send_random_stuff();
 					try_send_random_stuff();
 					try_send_random_stuff();
