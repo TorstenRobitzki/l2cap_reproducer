@@ -124,8 +124,10 @@ static bool is_connected = false;
 NET_BUF_POOL_FIXED_DEFINE(
     mqtt_sn_messages_over_l2cap,
     5,
-    std::size( random_data ) + BT_L2CAP_SDU_CHAN_SEND_RESERVE,
+    0x1028, //std::size( random_data ) + BT_L2CAP_SDU_CHAN_SEND_RESERVE,
     CONFIG_BT_CONN_TX_USER_DATA_SIZE, NULL);
+
+static_assert( 0x1028 >= std::size( random_data ) + BT_L2CAP_SDU_CHAN_SEND_RESERVE );
 
 static void try_send_random_stuff()
 {
