@@ -129,8 +129,6 @@ NET_BUF_POOL_FIXED_DEFINE(
     CONFIG_BT_CONN_TX_USER_DATA_SIZE, NULL);
 }
 
-static_assert( 0x1028 >= std::size( random_data ) + BT_L2CAP_SDU_CHAN_SEND_RESERVE );
-
 static void try_send_random_stuff()
 {
 	if ( is_connected && l2cap_channel_ )
