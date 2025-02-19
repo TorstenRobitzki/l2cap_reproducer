@@ -117,15 +117,17 @@ static void cgms_session_state_changed(const bool state)
 
 static bt_l2cap_chan* l2cap_channel_ = nullptr;
 
-static const std::uint8_t random_data[ 1024 ] = { 1, 2, 3, 4, 5, 6, 7 };
+static const std::uint8_t random_data[ 4 * 1024 ] = { 1, 2, 3, 4, 5, 6, 7 };
 
 static bool is_connected = false;
 
+namespace pool {
 NET_BUF_POOL_FIXED_DEFINE(
     mqtt_sn_messages_over_l2cap,
     5,
-    0x1028, //std::size( random_data ) + BT_L2CAP_SDU_CHAN_SEND_RESERVE,
+    std::size( random_data ) + BT_L2CAP_SDU_CHAN_SEND_RESERVE,
     CONFIG_BT_CONN_TX_USER_DATA_SIZE, NULL);
+}
 
 static_assert( 0x1028 >= std::size( random_data ) + BT_L2CAP_SDU_CHAN_SEND_RESERVE );
 
@@ -134,7 +136,7 @@ static void try_send_random_stuff()
 	if ( is_connected && l2cap_channel_ )
 	{
         net_buf * const buf = net_buf_alloc_fixed(
-            &mqtt_sn_messages_over_l2cap, K_FOREVER);
+            &pool::mqtt_sn_messages_over_l2cap, K_FOREVER);
 
         if ( !buf )
         {
@@ -208,6 +210,8 @@ static void init_l2cap()
                     return buf->len;
                 },
                 .sent = [](struct bt_l2cap_chan */*chan*/){
+                	// make sure, some send attempts will fail
+					try_send_random_stuff();
 					try_send_random_stuff();
                 },
                 .status = nullptr,
